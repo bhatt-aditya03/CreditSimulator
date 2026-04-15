@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 import joblib
 import json
 import numpy as np
@@ -28,11 +28,21 @@ app.add_middleware(
 class CreditInput(BaseModel):
     age_years:         float = Field(..., ge=18,  le=70,   description="Age in years")
     years_employed:    float = Field(..., ge=0,   le=50,   description="Years employed")
-    amt_income_total:  float = Field(..., ge=0,            description="Annual income")
-    amt_credit:        float = Field(..., ge=0,            description="Loan amount")
-    amt_annuity:       float = Field(..., ge=0,            description="Loan annuity")
+    amt_income_total:  float = Field(..., gt=0,            description="Annual income")
+    amt_credit:        float = Field(..., gt=0,            description="Loan amount")
+    amt_annuity:       float = Field(..., gt=0,            description="Loan annuity")
     cnt_children:      int   = Field(..., ge=0,   le=10,   description="Number of children")
 
+    @model_validator(mode="after")
+    def validate_cross_fields(self) -> "CreditInput":
+        if self.years_employed > self.age_years - 16:
+            raise ValueError("years_employed cannot exceed age minus 16")
+        if self.amt_annuity > self.amt_credit:
+            raise ValueError("amt_annuity cannot exceed amt_credit")
+        if self.amt_credit > self.amt_income_total * 20:
+            raise ValueError("amt_credit cannot exceed 20x annual income")
+        return self
+    
 class CreditOutput(BaseModel):
     credit_score: int
     risk_tier:    str
