@@ -6,10 +6,20 @@ from xgboost import XGBClassifier
 import joblib
 import json
 import os
+import argparse 
 
 # ── Config ────────────────────────────────────────────────────────────────────
 # Update this path to wherever application_train.csv is on your machine
-DATA_PATH = os.path.expanduser("~/credit-risk-analyzer/application_train.csv")
+parser = argparse.ArgumentParser(description="Train CreditSimulator XGBoost model")
+parser.add_argument(
+    "--data",
+    type=str,
+    default=os.path.expanduser("~/credit-risk-analyzer/application_train.csv"),
+    help="Path to application_train.csv"
+)
+args = parser.parse_args()
+DATA_PATH = args.data
+
 OUTPUT_DIR = os.path.dirname(__file__)  # saves into backend/model/
 
 # ── Load & clean ──────────────────────────────────────────────────────────────
