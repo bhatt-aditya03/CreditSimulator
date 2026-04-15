@@ -4,11 +4,9 @@ __pycache__/
 *.pyo
 .env
 
-# Data
-*.csv
-
 # macOS
 .DS_Store
+**/.DS_Store
 
 # Xcode
 ios/*.xcodeproj/xcuserdata/
