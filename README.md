@@ -7,8 +7,10 @@ Move the sliders → see your predicted credit score update in real time.
 
 ## Live Demo
 
-**API:** https://creditsimulator.onrender.com  
-**iOS App:** Coming soon
+**API:** https://creditsimulator.onrender.com
+**iOS App:** See [`/ios`](./ios/CreditSimulator/) — SwiftUI, runs on iOS 17+
+
+> First API request may take ~30s if the Render instance is cold (free tier).
 
 ---
 
@@ -16,13 +18,13 @@ Move the sliders → see your predicted credit score update in real time.
 
 ```
 User (iOS sliders)
-↓
-SwiftUI App (CreditSimulator.app)
-↓  HTTP POST /predict
-FastAPI Backend (Render)
-↓
+        ↓
+SwiftUI App — CreditViewModel (MVVM, 400ms debounce)
+        ↓  HTTP POST /predict
+FastAPI Backend (Render, Python 3.11)
+        ↓
 XGBoost Model (trained on Home Credit dataset)
-↓
+        ↓
 { credit_score: 742, risk_tier: "Good", default_prob: 0.26 }
 ```
 
@@ -40,7 +42,7 @@ XGBoost Model (trained on Home Credit dataset)
 
 **Features used:** Age, Years Employed, Annual Income, Loan Amount, Loan Annuity, Children count. Ratio features (Credit/Income, Annuity/Income, Credit Term) are derived server-side — not exposed to the user.
 
-**Score mapping:** `credit_score = int(900 - (default_probability × 600))`  
+**Score mapping:** `credit_score = int(900 - (default_probability × 600))`
 This is a linear transform for demo clarity. Real credit bureaus use PDO (Points to Double the Odds) log-odds calibration. The linear approximation is an intentional simplification.
 
 **Disclaimer:** This is a portfolio/demonstration project. Not a production credit scoring system. Do not use for real lending decisions.
@@ -86,7 +88,7 @@ Risk tiers: **Excellent** (750+) / **Good** (700+) / **Fair** (650+) / **Poor** 
 | ML Model | XGBoost, Scikit-learn, Pandas |
 | Backend | FastAPI, Python 3.11 |
 | Deployment | Render |
-| iOS App | SwiftUI, MVVM |
+| iOS App | SwiftUI, MVVM, Combine |
 
 ---
 
@@ -96,22 +98,32 @@ Risk tiers: **Excellent** (750+) / **Good** (700+) / **Fair** (650+) / **Poor** 
 CreditSimulator/
 ├── backend/
 │   ├── api/
-│   │   └── index.py          # FastAPI app
+│   │   └── index.py              # FastAPI app — /predict, /metadata endpoints
 │   ├── model/
-│   │   ├── model_xgb.pkl     # Trained XGBoost model
-│   │   ├── train_medians.json # Imputation values
-│   │   └── train_model.py    # Training script
+│   │   ├── model_xgb.pkl         # Trained XGBoost model (~415KB)
+│   │   ├── train_medians.json    # Imputation values saved from training split
+│   │   └── train_model.py        # Training script (argparse, no data leakage)
 │   ├── requirements.txt
-│   └── Procfile
+│   └── Procfile                  # Render start command
 └── ios/
-└── CreditSimulator/      # SwiftUI app (coming soon)
+    └── CreditSimulator/
+        ├── AppConfig.swift        # Backend URL + timeout config
+        ├── Models.swift           # CreditInput/Output + display helpers
+        ├── APIService.swift       # async/await URLSession, typed errors
+        ├── CreditViewModel.swift  # MVVM state, debounce, race condition fix
+        └── ContentView.swift      # SwiftUI views, accessibility labels
 ```
 
 ---
 
-## Resume Headline
+## iOS Architecture Notes
 
-> **CreditSimulator** — Predictive FinTech Dashboard  
-> Built a financial modeling tool that predicts creditworthiness using XGBoost trained on 307k real loan applications. Implemented a reactive SwiftUI interface to visualize how financial variables impact credit scores in real time. Deployed FastAPI backend on Render.
+- **MVVM** — `CreditViewModel` owns all state and API logic. Views are pure UI.
+- **400ms debounce** — waits for the user to stop dragging before firing a request.
+- **Race condition fix** — in-flight tasks are cancelled before new ones start.
+- **Age clamp** — `yearsEmployed` is automatically capped to `age - 16` to prevent 422 validation errors.
+- **Cold-start UX** — a hint appears after 4s of loading so users know the server is waking up.
 
+See [`ios/CreditSimulator/README.md`](./ios/CreditSimulator/README.md) for full design decision notes.
 
+---
