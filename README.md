@@ -3,6 +3,8 @@
 A FinTech "what-if" credit scoring simulator built on 307,511 real loan applications.
 Move the sliders → see your predicted credit score update in real time.
 
+![Backend CI](https://github.com/bhatt-aditya03/CreditSimulator/actions/workflows/ci.yml/badge.svg)
+
 ---
 
 ## Live Demo
