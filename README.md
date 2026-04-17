@@ -20,7 +20,6 @@ Move the sliders → see your predicted credit score update in real time.
 | Default Values | Adjusted Profile |
 |---|---|
 | ![Default](./screenshots/app_default.png) | ![Adjusted](./screenshots/app_adjusted.png) |
-
 ## Architecture
 
 ```
