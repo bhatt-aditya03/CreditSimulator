@@ -8,11 +8,18 @@ Move the sliders → see your predicted credit score update in real time.
 ## Live Demo
 
 **API:** https://creditsimulator.onrender.com
+
 **iOS App:** See [`/ios`](./ios/CreditSimulator/) — SwiftUI, runs on iOS 17+
 
 > First API request may take ~30s if the Render instance is cold (free tier).
 
 ---
+
+## Screenshots
+
+| Default Values | Adjusted Profile |
+|---|---|
+| ![Default](./screenshots/app_default.png) | ![Adjusted](./screenshots/app_adjusted.png) |
 
 ## Architecture
 
