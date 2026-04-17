@@ -1,0 +1,34 @@
+{
+    "version": "1.0.0",
+    "trained_at": "2026-04-15",
+    "algorithm": "XGBoostClassifier",
+    "dataset": "Home Credit Default Risk (Kaggle)",
+    "dataset_rows": 307511,
+    "training_samples": 246008,
+    "test_samples": 61503,
+    "roc_auc": 0.6789,
+    "baseline_auc": 0.6063,
+    "features": [
+        "AGE_YEARS",
+        "YEARS_EMPLOYED",
+        "AMT_INCOME_TOTAL",
+        "AMT_CREDIT",
+        "AMT_ANNUITY",
+        "CREDIT_INCOME_RATIO",
+        "ANNUITY_INCOME_RATIO",
+        "CREDIT_TERM",
+        "CNT_CHILDREN"
+    ],
+    "hyperparameters": {
+        "n_estimators": 100,
+        "max_depth": 6,
+        "learning_rate": 0.1,
+        "scale_pos_weight": 10
+    },
+    "score_mapping": {
+        "formula": "int(900 - (default_probability * 600))",
+        "type": "linear_transform",
+        "note": "Real bureaus use PDO log-odds calibration. This is an intentional simplification."
+    },
+    "notes": "Trained on Home Credit Default Risk dataset. For portfolio/demo purposes only."
+}

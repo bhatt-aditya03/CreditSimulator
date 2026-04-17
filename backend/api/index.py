@@ -10,10 +10,10 @@ import numpy as np
 import logging
 import os
 
-# MARK: - Logging
+# ── Logging ───────────────────────────────────────────────────────────────────
 # Structured logging to stdout — Render captures these in the service
-# dashboard under the Logs tab, giving visibility into production traffic.
-# Format: timestamp | level | message for easy reading and filtering.
+# dashboard under the Logs tab, giving real visibility into production traffic.
+# Format: timestamp | level | message for easy reading and grep-based filtering.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -21,39 +21,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# MARK: - Rate Limiting
-# Protects the /predict endpoint from abuse.
-# In a real FinTech system, a scoring API being hammered is a real threat
-# model — competitors scraping your model, denial-of-service, etc.
+# ── Rate Limiting ─────────────────────────────────────────────────────────────
+# Protects /predict from abuse. In FinTech, a scoring API being hammered
+# is a real threat — competitors scraping the model, DoS attacks, etc.
 # Current limit: 30 requests/minute per IP (generous for a demo).
-# In production this would be tighter and tied to authenticated users.
+# In production this would be tighter and tied to authenticated API keys.
 limiter = Limiter(key_func=get_remote_address)
 
-# MARK: - Artifact Loading
+# ── Artifact Loading ──────────────────────────────────────────────────────────
 # Paths resolved relative to this file so they work both locally and on Render.
-BASE_DIR    = os.path.dirname(os.path.dirname(__file__))  # points to backend/
-MODEL_PATH  = os.path.join(BASE_DIR, "model", "model_xgb.pkl")
+BASE_DIR   = os.path.dirname(os.path.dirname(__file__))  # points to backend/
+MODEL_PATH = os.path.join(BASE_DIR, "model", "model_xgb.pkl")
 MEDIAN_PATH = os.path.join(BASE_DIR, "model", "train_medians.json")
+META_PATH  = os.path.join(BASE_DIR, "model", "model_metadata.json")
 
-# Load once at startup — not on every request.
-# joblib.load deserializes the XGBoost model from the pickle file.
-# train_medians are the feature medians computed on the training split,
-# used as fallback imputation values when a denominator would be zero.
+# Load all three artifacts once at startup — not on every request.
+# model         — XGBoost classifier (serialized with joblib)
+# train_medians — feature medians from training split, used as fallback
+#                 imputation values when a denominator would be zero
+# model_meta    — version info, AUC, hyperparameters — single source of
+#                 truth for everything surfaced at /metadata
 model         = joblib.load(MODEL_PATH)
 train_medians = json.load(open(MEDIAN_PATH))
-logger.info("Model and medians loaded successfully")
+model_meta    = json.load(open(META_PATH))
+logger.info(
+    "Artifacts loaded | model version=%s | AUC=%.4f",
+    model_meta["version"],
+    model_meta["roc_auc"]
+)
 
-# MARK: - App
+# ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="CreditSimulator API", version="1.0.0")
 
-# Attach rate limiter and its exception handler to the app
+# Attach rate limiter and its 429 exception handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS: currently open for demo purposes (allow_origins=["*"]).
-# In production this would be restricted — for an iOS-only client,
-# CORS headers are not strictly needed (iOS is not a browser),
-# but keeping it open allows curl and Swagger UI testing.
+# CORS: currently open (allow_origins=["*"]) for demo purposes.
+# This allows curl, Swagger UI, and any browser to hit the API freely.
+# For an iOS-only client, CORS headers are technically unnecessary
+# (iOS is not a browser), but keeping it open simplifies local testing.
+# In production the allowlist would be restricted to trusted origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,13 +71,14 @@ app.add_middleware(
 
 # Feature order must match exactly what the model was trained on in train_model.py.
 # Any mismatch causes silent wrong predictions — no error, just bad output.
+# This list is also surfaced in /metadata so API consumers can see what drives the score.
 FEATURES = [
     "AGE_YEARS", "YEARS_EMPLOYED", "AMT_INCOME_TOTAL",
     "AMT_CREDIT", "AMT_ANNUITY", "CREDIT_INCOME_RATIO",
     "ANNUITY_INCOME_RATIO", "CREDIT_TERM", "CNT_CHILDREN"
 ]
 
-# MARK: - Schema
+# ── Schema ────────────────────────────────────────────────────────────────────
 
 class CreditInput(BaseModel):
     """6 user-facing inputs. Derived ratio features are computed internally."""
@@ -84,8 +93,9 @@ class CreditInput(BaseModel):
     def validate_cross_fields(self) -> "CreditInput":
         """
         Catch logically impossible combinations that pass individual field checks.
-        These are the same rules enforced client-side in CreditViewModel —
+        These mirror the rules enforced client-side in CreditViewModel —
         server-side validation is the authoritative second layer of defence.
+        FastAPI returns 422 Unprocessable Entity when any rule fails.
         """
         if self.years_employed > self.age_years - 16:
             raise ValueError("years_employed cannot exceed age minus 16")
@@ -102,13 +112,13 @@ class CreditOutput(BaseModel):
     default_prob: float  # Raw XGBoost output — probability of loan default (0.0–1.0)
 
 
-# MARK: - Helpers
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def probability_to_score(prob: float) -> int:
     """
     Map default probability (0.0→1.0) to credit score (900→300).
 
-    Uses a linear transform: score = 900 - (prob * 600)
+    Formula: score = 900 - (prob × 600)
     - 0%  default risk → 900 (Excellent)
     - 50% default risk → 600 (Poor)
     - 100% default risk → 300 (Very Poor)
@@ -133,38 +143,35 @@ def score_to_tier(score: int) -> str:
         return "Very Poor"
 
 
-# MARK: - Routes
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
-    """Health check endpoint. Used by Render to verify the service is up."""
+    """
+    Health check endpoint.
+    Used by Render to verify the service is up after deployment.
+    Also useful for confirming the API is awake before firing /predict.
+    """
     return {"status": "ok", "message": "CreditSimulator API is running"}
 
 
 @app.get("/metadata")
-def model_metadata():
+def metadata():
     """
-    Returns model info, performance metrics, score mapping rationale, and disclaimer.
+    Returns model version, performance metrics, hyperparameters,
+    score mapping rationale, and disclaimer.
 
-    Exposing AUC and the disclaimer programmatically shows awareness of model
-    limitations — a senior engineering practice. An interviewer calling this
-    endpoint can see immediately that this is a demo, not a production scorer.
+    Data is loaded from model_metadata.json — the single source of truth
+    for all model information. This pattern means the /metadata response
+    automatically reflects any future model retraining without code changes.
+
+    Exposing AUC and disclaimer programmatically shows awareness of model
+    limitations — a senior engineering practice. An interviewer calling
+    this endpoint can see immediately that this is a demo, not a
+    production credit scorer.
     """
     return {
-        "model": "XGBoostClassifier",
-        "dataset": "Home Credit Default Risk (Kaggle)",
-        "training_samples": 246008,
-        "test_samples": 61503,
-        "roc_auc": 0.6789,
-        "features": FEATURES,
-        "score_mapping": {
-            "formula": "credit_score = int(900 - (default_probability * 600))",
-            "rationale": (
-                "Linear transform for demo purposes. "
-                "Real bureau scoring uses calibrated odds-to-score mapping (PDO scaling)."
-            ),
-            "range": "300 (highest risk) to 900 (lowest risk)"
-        },
+        **model_meta,
         "disclaimer": (
             "This is a demonstration model built for portfolio purposes. "
             "It is NOT a production credit scoring system and should not "
@@ -186,15 +193,18 @@ def predict(request: Request, data: CreditInput):
     Rate limited to 30 requests/minute per IP to prevent API abuse.
     """
     try:
-        # Log incoming request — age and income only.
-        # Deliberately not logging full input to avoid unnecessary PII exposure
-        # (income + credit + age combination could fingerprint an individual).
+        # Log incoming request — age, income, credit amount only.
+        # Deliberately not logging the full input to reduce PII exposure:
+        # the combination of income + credit + age + children can
+        # fingerprint an individual in a small dataset context.
         logger.info(
             "Predict request | age=%.0f | income=%.0f | credit=%.0f",
             data.age_years, data.amt_income_total, data.amt_credit
         )
 
         # Compute derived features — same transformations used during training.
+        # These ratios capture financial stress more effectively than raw amounts:
+        # ₹5L loan means very different things on ₹3L vs ₹30L annual income.
         # Falls back to training medians rather than crashing on zero denominators.
         credit_income_ratio  = (data.amt_credit  / data.amt_income_total
                                 if data.amt_income_total > 0
@@ -239,6 +249,7 @@ def predict(request: Request, data: CreditInput):
         )
 
     except Exception as e:
-        # Log full stack trace so production issues are debuggable from Render logs
+        # Log full stack trace so production issues are debuggable from Render logs.
+        # exc_info=True captures the full traceback, not just the error message.
         logger.error("Predict failed | error=%s", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
