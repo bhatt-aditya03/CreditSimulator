@@ -1,9 +1,9 @@
 # CreditSimulator
 
+![Backend CI](https://github.com/bhatt-aditya03/CreditSimulator/actions/workflows/ci.yml/badge.svg)
+
 A FinTech "what-if" credit scoring simulator built on 307,511 real loan applications.
 Move the sliders → see your predicted credit score update in real time.
-
-![Backend CI](https://github.com/bhatt-aditya03/CreditSimulator/actions/workflows/ci.yml/badge.svg)
 
 ---
 
@@ -13,7 +13,7 @@ Move the sliders → see your predicted credit score update in real time.
 
 **iOS App:** See [`/ios`](./ios/CreditSimulator/) — SwiftUI, runs on iOS 17+
 
-> First API request may take ~30s if the Render instance is cold (free tier).
+> First API request may take ~30s as the Render instance is cold (free tier).
 
 ---
 
@@ -22,6 +22,9 @@ Move the sliders → see your predicted credit score update in real time.
 | Default Values | Adjusted Profile |
 |---|---|
 | ![Default](./screenshots/app_default.png) | ![Adjusted](./screenshots/app_adjusted.png) |
+
+---
+
 ## Architecture
 
 ```
@@ -46,7 +49,7 @@ XGBoost Model (trained on Home Credit dataset)
 | Dataset | Home Credit Default Risk (Kaggle) |
 | Training samples | 246,008 |
 | Test samples | 61,503 |
-| ROC-AUC | 0.6789 (baseline: 0.5) |
+| ROC-AUC | 0.6789 (baseline: 0.5063) |
 
 **Features used:** Age, Years Employed, Annual Income, Loan Amount, Loan Annuity, Children count. Ratio features (Credit/Income, Annuity/Income, Credit Term) are derived server-side — not exposed to the user.
 
@@ -63,9 +66,11 @@ This is a linear transform for demo clarity. Real credit bureaus use PDO (Points
 Health check.
 
 ### `GET /metadata`
-Returns model info, AUC, features, score mapping rationale, and disclaimer.
+Returns model version, AUC, hyperparameters, features, score mapping rationale, and disclaimer. Loaded from `model_metadata.json` — single source of truth for all model info.
 
 ### `POST /predict`
+Rate limited to 30 requests/minute per IP.
+
 ```json
 {
   "age_years": 35,
@@ -76,7 +81,9 @@ Returns model info, AUC, features, score mapping rationale, and disclaimer.
   "cnt_children": 1
 }
 ```
+
 Returns:
+
 ```json
 {
   "credit_score": 673,
@@ -94,8 +101,10 @@ Risk tiers: **Excellent** (750+) / **Good** (700+) / **Fair** (650+) / **Poor** 
 | Layer | Technology |
 |---|---|
 | ML Model | XGBoost, Scikit-learn, Pandas |
-| Backend | FastAPI, Python 3.11 |
+| Backend | FastAPI, Python 3.11, pydantic-settings |
+| Rate Limiting | slowapi (30 req/min per IP) |
 | Deployment | Render |
+| CI | GitHub Actions (pytest, 22 tests) |
 | iOS App | SwiftUI, MVVM, Combine |
 
 ---
@@ -104,13 +113,22 @@ Risk tiers: **Excellent** (750+) / **Good** (700+) / **Fair** (650+) / **Poor** 
 
 ```
 CreditSimulator/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                # GitHub Actions — runs pytest on every push
 ├── backend/
 │   ├── api/
-│   │   └── index.py              # FastAPI app — /predict, /metadata endpoints
+│   │   └── index.py              # FastAPI app — /predict, /metadata, logging, rate limiting
 │   ├── model/
 │   │   ├── model_xgb.pkl         # Trained XGBoost model (~415KB)
 │   │   ├── train_medians.json    # Imputation values saved from training split
+│   │   ├── model_metadata.json   # Model version, AUC, hyperparameters
 │   │   └── train_model.py        # Training script (argparse, no data leakage)
+│   ├── tests/
+│   │   ├── test_api.py           # 13 API tests (health, predict, validation errors)
+│   │   └── test_model.py         # 9 model tests (artifacts, predictions, edge cases)
+│   ├── config.py                 # pydantic-settings — env-based config
+│   ├── .env.example              # Environment variable template
 │   ├── requirements.txt
 │   └── Procfile                  # Render start command
 └── ios/
@@ -121,6 +139,16 @@ CreditSimulator/
         ├── CreditViewModel.swift  # MVVM state, debounce, race condition fix
         └── ContentView.swift      # SwiftUI views, accessibility labels
 ```
+
+---
+
+## Backend Engineering Notes
+
+- **Structured logging** — every request and response logged to stdout with timestamp and level. Visible in Render's Logs tab for production debugging.
+- **Rate limiting** — `slowapi` at 30 req/minute per IP. Configurable via `RATE_LIMIT` environment variable.
+- **Environment config** — all settings (paths, rate limit, log level, CORS) loaded via `pydantic-settings`. Override in production without code changes.
+- **Model versioning** — `model_metadata.json` tracks version, training date, AUC, and hyperparameters. Surfaced at `/metadata`.
+- **PII awareness** — only age, income, and credit amount are logged. Full input combinations are not logged to reduce fingerprinting risk.
 
 ---
 
