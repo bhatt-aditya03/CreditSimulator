@@ -19,12 +19,12 @@ def test_metadata_returns_expected_keys():
     response = client.get("/metadata")
     assert response.status_code == 200
     data = response.json()
-    assert "model" in data
+    assert "algorithm" in data
     assert "roc_auc" in data
     assert "features" in data
     assert "score_mapping" in data
     assert "disclaimer" in data
-
+    
 def test_metadata_auc_is_correct():
     """AUC in metadata should match the trained model's performance."""
     response = client.get("/metadata")
