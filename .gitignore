@@ -11,3 +11,7 @@ __pycache__/
 # Xcode
 ios/*.xcodeproj/xcuserdata/
 ios/DerivedData/
+
+# Environment variables — never commit secrets
+.env
+backend/.env
